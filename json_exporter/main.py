@@ -10,6 +10,7 @@ import time
 import argparse
 import logging
 import logging.config
+import os
 import re
 import threading
 import signal
@@ -224,7 +225,7 @@ class Rule(object):
 
 class Target(object):
     'Represent a single target HTTP(S) endpoint to scrape JSON from.'
-    def __init__(self, name, method, url, params, headers, body, timeout, ca_bundle, strftime, strftime_utc):
+    def __init__(self, name, method, url, params, headers, body, timeout, ca_bundle, strftime, strftime_utc, tls_verify_str):
         self.name = name
         self.method = method
         self.url = url
@@ -240,6 +241,15 @@ class Target(object):
         self.strftime_utc = strftime_utc
         self.rules = []
         self.metric_families = []
+        self.tls_verify = tls_verify_str == "True" or tls_verify_str == "true"
+        # Basic auth via env
+        env_basic_auth_user = "BASIC_AUTH_USER_{}".format(name.upper())
+        env_basic_auth_pass = "BASIC_AUTH_PASS_{}".format(name.upper())
+        basic_auth_user = os.environ.get(env_basic_auth_user)
+        basic_auth_pass = os.environ.get(env_basic_auth_pass)
+        if basic_auth_user and basic_auth_pass:
+            info("using basic auth from environment variables %s/%s", env_basic_auth_user, env_basic_auth_pass)
+            self.session.auth = (basic_auth_user, basic_auth_pass)
 
     def __str__(self):
         return 'name=%s url=%s params=%r headers=%r timeout=%r' % (self.name,
@@ -286,7 +296,7 @@ class Target(object):
             debug('scrape method=%s, url=%s, params=%r, headers=%r, data=%r', self.method, url, params, self.headers, data)
             response = self.session.request(self.method, url, params=params,
                                             headers=self.headers, data=data,
-                                            timeout=self.timeout, verify=False)
+                                            timeout=self.timeout, verify=self.tls_verify)
             response.raise_for_status()
 
             try:
@@ -344,13 +354,15 @@ class JSONCollector(object):
         ca_bundle = read_from(target, 'ca_bundle', glb_ca_bundle)
         strftime = read_from(target, 'strftime', '')
         strftime_utc = bool(read_from(target, 'strftime_utc', True))
+        # read_from() can't read negative boolean by design, use string instead
+        tls_verify_str = read_from(target, 'tls_verify', "True")
         if not target_name:
             warn('skipping target %d without a name', target_idx + 1)
             return None
         if not url:
             warn('skipping target %s without a url', target_name)
             return None
-        return Target(target_name, method, url, params, headers, body, timeout, ca_bundle, strftime, strftime_utc)
+        return Target(target_name, method, url, params, headers, body, timeout, ca_bundle, strftime, strftime_utc, tls_verify_str)
 
     def read_rule_config(self, rule, target_name, rule_idx):
         'Read configuration items from rule config.'
