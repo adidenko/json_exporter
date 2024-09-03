@@ -286,7 +286,7 @@ class Target(object):
             debug('scrape method=%s, url=%s, params=%r, headers=%r, data=%r', self.method, url, params, self.headers, data)
             response = self.session.request(self.method, url, params=params,
                                             headers=self.headers, data=data,
-                                            timeout=self.timeout)
+                                            timeout=self.timeout, verify=False)
             response.raise_for_status()
 
             try:
